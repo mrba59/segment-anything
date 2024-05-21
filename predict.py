@@ -1,11 +1,12 @@
+import cv2
 from foot_utils import util
 from segment_anything import SamPredictor
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
-import os
-print(os.getcwd())
 
-import cv2
+
 import numpy as np
+import matplotlib.pyplot as plt
+
 global foot_field
 foot_field = []
 
@@ -24,6 +25,7 @@ def get_coeff(x1, y1, x2, y2):
     b = coeff[1]
     return a, b
 
+
 def get_boxe_in_field(list_boxes, field):
     lf = field[0]
     rf = field[1]
@@ -40,6 +42,8 @@ def get_boxe_in_field(list_boxes, field):
                 boxes_in_field.append(boxe)
 
     return boxes_in_field
+
+
 def click_event(event, x, y, flags, param):
     # checking for left mouse clicks
 
@@ -48,6 +52,7 @@ def click_event(event, x, y, flags, param):
         # on the Shell
         print(x, ' ', y)
         foot_field.append([x, y])
+
 
 def get_field_by_asking(img):
     cv2.namedWindow('image', cv2.WINDOW_NORMAL)
@@ -66,13 +71,50 @@ def get_field_by_asking(img):
     bottom_line = foot_field[6:8]
     return [left_line, right_line, top_line, bottom_line]
 
-sam = sam_model_registry["vit_b"](checkpoint="segment-anything/sam_vit_b_01ec64.pth")
-[left_line, right_line, top_line, bottom_line] = get_field_by_asking(cv2.imread("/home/reda/Documents/results_detectron/rosen/DJI_0019/images/frame_246.jpg"))
 
+def show_anns(anns):
+    if len(anns) == 0:
+        return
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    ax = plt.gca()
+    ax.set_autoscale_on(False)
+
+    img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
+    img[:, :, 3] = 0
+    for ann in sorted_anns:
+        m = ann['segmentation']
+        color_mask = np.concatenate([np.random.random(3), [0.35]])
+        img[m] = color_mask
+    ax.imshow(img)
+
+def draw_masks_fromDict(image, masks_generated) :
+  masked_image = image.copy()
+  for i in range(len(masks_generated)) :
+    masked_image = np.where(np.repeat(masks_generated[i]['segmentation'].astype(int)[:, :, np.newaxis], 3, axis=2),
+                            np.random.choice(range(256), size=3),
+                            masked_image)
+
+    masked_image = masked_image.astype(np.uint8)
+
+  return cv2.addWeighted(image, 0.3, masked_image, 0.7, 0)
+
+
+sam = sam_model_registry["vit_l"](checkpoint="segment-anything/checkpoints/sam_vit_l_0b3195.pth")
+#image = cv2.imread("/home/reda/Documents/projets/results_detectron/rosen/DJI_0019/images/frame_246.jpg")
+video_path = '/home/reda/Documents/projets/drone/rosen_esquelbeck_10_09/DJI_0019.MP4'
+
+# Open the video file
+cap = cv2.VideoCapture(video_path)
+ret, image = cap.read()
+
+print(image)
+
+# [left_line, right_line, top_line, bottom_line] = get_field_by_asking(image)
 
 sam.to(device='cuda')
-mask_generator = SamAutomaticMaskGenerator(sam)
+mask_generator = SamAutomaticMaskGenerator(sam, points_per_side=80, pred_iou_thresh=0.75)
 predictor = SamPredictor(sam)
-image = cv2.imread("/home/reda/Documents/results_detectron/rosen/DJI_0019/images/frame_246.jpg")
 masks = mask_generator.generate(image)
-print(masks)
+sorted_masks = sorted(masks, key=lambda x: x['area'])
+segmented_image = draw_masks_fromDict(image, sorted_masks[:45])
+cv2.imshow('seg',segmented_image)
